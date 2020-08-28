@@ -28,9 +28,17 @@ class UserResponse {
 }
 
 @InputType()
-export class UsernamePasswordInput {
+export class UserRegisterInput {
   @Field()
   email: string;
+  @Field()
+  username: string;
+  @Field()
+  password: string;
+}
+
+@InputType()
+export class UserLoginInput {
   @Field()
   username: string;
   @Field()
@@ -46,7 +54,7 @@ export class UserResolver {
 
   @Mutation(() => UserResponse)
   async register(
-    @Arg('options') options: UsernamePasswordInput,
+    @Arg('options') options: UserRegisterInput,
   ): Promise<UserResponse> {
     const hashedPassword = await argon2.hash(options.password);
     let user;
@@ -65,6 +73,37 @@ export class UserResolver {
         };
       }
     }
+    return { user };
+  }
+
+  @Mutation(() => UserResponse)
+  async login(@Arg('options') options: UserLoginInput): Promise<UserResponse> {
+    const user = await User.findOne({ username: options.username });
+
+    if (!user) {
+      return {
+        errors: [
+          {
+            field: 'username',
+            message: "username doesn't exist",
+          },
+        ],
+      };
+    }
+
+    const valid = await argon2.verify(user.password, options.password);
+
+    if (!valid) {
+      return {
+        errors: [
+          {
+            field: 'username or password',
+            message: 'inavlid username or password',
+          },
+        ],
+      };
+    }
+
     return { user };
   }
 }
