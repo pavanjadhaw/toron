@@ -6,9 +6,11 @@ import {
   InputType,
   Arg,
   Query,
+  Ctx,
 } from 'type-graphql';
 import { User } from '../entities/User';
 import * as argon2 from 'argon2';
+import { MyContext } from 'src/types';
 
 @ObjectType()
 class FieldError {
@@ -48,8 +50,13 @@ export class UserLoginInput {
 @Resolver(User)
 export class UserResolver {
   @Query(() => User, { nullable: true })
-  user(@Arg('id') id: number) {
-    return User.findOne(id);
+  me(@Ctx() { req }: MyContext) {
+    // you are not logged in
+    if (!req.session.userId) {
+      return null;
+    }
+
+    return User.findOne(req.session.userId);
   }
 
   @Mutation(() => UserResponse)
@@ -77,7 +84,10 @@ export class UserResolver {
   }
 
   @Mutation(() => UserResponse)
-  async login(@Arg('options') options: UserLoginInput): Promise<UserResponse> {
+  async login(
+    @Arg('options') options: UserLoginInput,
+    @Ctx() { req }: MyContext,
+  ): Promise<UserResponse> {
     const user = await User.findOne({ username: options.username });
 
     if (!user) {
@@ -103,6 +113,8 @@ export class UserResolver {
         ],
       };
     }
+
+    req.session.userId = user.id;
 
     return { user };
   }
