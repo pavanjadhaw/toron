@@ -11,20 +11,10 @@ import {
 import { User } from '../entities/User';
 import * as argon2 from 'argon2';
 import { MyContext } from 'src/types';
-
-@ObjectType()
-class FieldError {
-  @Field()
-  field: string;
-  @Field()
-  message: string;
-}
+import { UserInputError } from 'apollo-server-express';
 
 @ObjectType()
 class UserResponse {
-  @Field(() => [FieldError], { nullable: true })
-  errors?: FieldError[];
-
   @Field(() => User, { nullable: true })
   user?: User;
 }
@@ -32,19 +22,20 @@ class UserResponse {
 @InputType()
 export class UserRegisterInput {
   @Field()
-  email: string;
+  email!: string;
   @Field()
-  username: string;
+  username!: string;
   @Field()
-  password: string;
+  password!: string;
 }
 
 @InputType()
 export class UserLoginInput {
   @Field()
-  username: string;
+  usernameOrEmail!: string;
+
   @Field()
-  password: string;
+  password!: string;
 }
 
 @Resolver(User)
@@ -64,22 +55,18 @@ export class UserResolver {
     @Arg('options') options: UserRegisterInput,
   ): Promise<UserResponse> {
     const hashedPassword = await argon2.hash(options.password);
+
     let user;
+
     try {
       user = await User.create({ ...options, password: hashedPassword }).save();
     } catch (err) {
       // postgres unique_violation code
       if (err.code === '23505') {
-        return {
-          errors: [
-            {
-              field: 'username',
-              message: 'username already taken',
-            },
-          ],
-        };
+        throw new UserInputError('Username or email already in use.');
       }
     }
+
     return { user };
   }
 
@@ -88,30 +75,20 @@ export class UserResolver {
     @Arg('options') options: UserLoginInput,
     @Ctx() { req }: MyContext,
   ): Promise<UserResponse> {
-    const user = await User.findOne({ username: options.username });
+    const user = await User.findOne(
+      options.usernameOrEmail.includes('@')
+        ? { where: { email: options.usernameOrEmail } }
+        : { where: { username: options.usernameOrEmail } },
+    );
 
     if (!user) {
-      return {
-        errors: [
-          {
-            field: 'username',
-            message: "username doesn't exist",
-          },
-        ],
-      };
+      throw new UserInputError('Username or password invalid.');
     }
 
     const valid = await argon2.verify(user.password, options.password);
 
     if (!valid) {
-      return {
-        errors: [
-          {
-            field: 'username or password',
-            message: 'inavlid username or password',
-          },
-        ],
-      };
+      throw new UserInputError('Username or password invalid.');
     }
 
     req.session.userId = user.id;
